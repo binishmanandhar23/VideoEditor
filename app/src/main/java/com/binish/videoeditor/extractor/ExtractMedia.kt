@@ -1,16 +1,19 @@
 package com.binish.videoeditor.extractor
 
 import android.content.Context
+import android.graphics.SurfaceTexture
 import android.media.*
 import android.net.Uri
 import android.util.Log
 import android.view.Surface
+import android.view.SurfaceControl
+import android.view.SurfaceView
 import android.widget.VideoView
 import java.nio.ByteBuffer
 import kotlin.properties.Delegates
 
 class ExtractMedia {
-    fun getExtractor(context: Context, dataSource: Uri, size: Long){
+    fun getExtractor(context: Context, dataSource: Uri, size: Long, surfaceTexture: SurfaceTexture){
         Log.i("DataSource", "${dataSource.path}")
         val extractor = MediaExtractor()
         try {
@@ -23,10 +26,10 @@ class ExtractMedia {
             for (i in 0 until numTracks) {
                 val format = extractor.getTrackFormat(i)
                 val mime = format.getString(MediaFormat.KEY_MIME)
-                Log.i("MimeType", "$i: $mime")
+                Log.i("MimeType", "$i: $mime  TrackFormat: ${extractor.getTrackFormat(i)}")
                 if (i == 0) {
                     extractor.selectTrack(i)
-                    mediaCodec(size = size, format = extractor.getTrackFormat(i))
+                    mediaCodec(size = size, format = extractor.getTrackFormat(i), surfaceTexture = surfaceTexture)
                 }
             }
             val inputBuffer = ByteBuffer.allocate(size.toInt())
@@ -44,9 +47,12 @@ class ExtractMedia {
         }
     }
 
-    fun mediaCodec(size: Long, format: MediaFormat){
-        val codecName = MediaCodecList(MediaCodecList.REGULAR_CODECS).findDecoderForFormat(format)
-        val mDecoder = MediaCodec.createDecoderByType(codecName)
+    fun mediaCodec(size: Long, format: MediaFormat, surfaceTexture: SurfaceTexture){
+        val mDecoder = MediaCodec.createDecoderByType(MediaCodecList(MediaCodecList.ALL_CODECS).findDecoderForFormat(format).let{
+            Log.i("CodecType","Type: $it")
+            it
+        })
+        val mEncoder = MediaCodec.createEncoderByType(MediaCodecList(MediaCodecList.ALL_CODECS).findEncoderForFormat(format))
         var mOutputFormat = format
 
 
@@ -78,7 +84,13 @@ class ExtractMedia {
                 mOutputFormat = format
             }
         })
-        mDecoder.configure(format,)
+        mEncoder.configure(mOutputFormat, null,null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        val inputSurface = mEncoder.createInputSurface()
+        mEncoder.start()
+
+        val outputSurface = Surface(surfaceTexture)
+        mDecoder.configure(format, outputSurface,null, 0)
+        mDecoder.start()
 
         mOutputFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT,
             MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
@@ -89,6 +101,9 @@ class ExtractMedia {
         mOutputFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL,
             format.getInteger(MediaFormat.KEY_I_FRAME_INTERVAL))
 
-
+        inputSurface.release()
+        outputSurface.release()
+        mEncoder.release()
+        mDecoder.release()
     }
 }
